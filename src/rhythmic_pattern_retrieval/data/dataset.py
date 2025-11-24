@@ -1,4 +1,5 @@
 import torch
+import random
 from pathlib import Path
 from torch.utils.data import Dataset
 
@@ -8,8 +9,9 @@ from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR
 class SpectrogramDataset(Dataset):
     """Dataset for loading preprocessed drums+bass mel spectrograms."""
 
-    def __init__(self, root_dir=PROCESSED_DATA_DIR, debug_limit=None):
+    def __init__(self, root_dir=PROCESSED_DATA_DIR, crop_size=256, debug_limit=None):
         self.root_dir = Path(root_dir)
+        self.crop_size = crop_size
 
         print(f"Scanning spectrograms in {self.root_dir}...")
         self.spectrogram_files = list(self.root_dir.glob("*.pt"))
@@ -19,13 +21,20 @@ class SpectrogramDataset(Dataset):
 
         if len(self.spectrogram_files) == 0:
             print(f"❌ WARNING: No .pt files found in {self.root_dir}.")
-            print("   Run preprocessing first with Preprocessor class.")
         else:
             print(
                 f"✅ Dataset initialized with {len(self.spectrogram_files)} spectrograms.")
 
     def __len__(self):
         return len(self.spectrogram_files)
+
+    def _random_crop(self, spec):
+        _, _, time_steps = spec.shape
+        if self.crop_size is None or time_steps <= self.crop_size:
+            return spec[:, :, :self.crop_size]
+        else:
+            start = random.randint(0, time_steps - self.crop_size)
+            return spec[:, :, start: start + self.crop_size]
 
     def __getitem__(self, index):
         """
@@ -38,71 +47,10 @@ class SpectrogramDataset(Dataset):
         try:
             # Load precomputed spectrogram
             spec = torch.load(spec_path)
-
-            # Ensure shape is [1, 128, Time] for the model
-            if spec.dim() == 2:
-                spec = spec.unsqueeze(0)  # Add channel dimension
-
+            spec = self._random_crop(spec)
             return spec, str(spec_path)
 
         except Exception as e:
             print(f"❌ Error loading {spec_path}: {e}")
             # Return zeros to prevent crash (shape: [1, 128, 1000] as fallback)
-            return torch.zeros((1, 128, 1000)), str(spec_path)
-
-
-# class FMADataset(Dataset):
-#     def __init__(self, root_dir=RAW_DATA_DIR, target_sample_rate=SAMPLE_RATE, duration=DURATION, debug_limit=None):
-#         self.root_dir = Path(root_dir)
-#         self.target_sample_rate = target_sample_rate
-#         self.num_samples = target_sample_rate
-
-#         print(f"Scanning files in {self.root_dir}...")
-#         self.audio_files = list(self.root_dir.glob("**/*.mp3"))
-
-#         # Security
-#         if debug_limit is not None and len(self.audio_files) > debug_limit:
-#             self.audio_files = self.audio_files[:debug_limit]
-
-#         if len(self.audio_files) == 0:
-#             print(f"❌ WARNING: No MP3 files found in {self.root_dir}.")
-#         else:
-#             print(
-#                 f"✅ Dataset initialized with {len(self.audio_files)} tracks.")
-
-#     def __len__(self):
-#         return len(self.audio_files)
-
-#     def __getitem__(self, index):
-#         """
-#         Returns:
-#             waveform (Tensor): Shape [1, num_samples]
-#             path (str): Path to the file (useful for debugging)
-#         """
-#         audio_path = self.audio_files[index]
-
-#         try:
-#             # 1. Load audio
-#             # signal shape: (channels, time)
-#             audio_np, _ = librosa.load(
-#                 str(audio_path), sr=self.target_sample_rate, mono=True)
-#             signal = torch.from_numpy(audio_np).float().unsqueeze(0)
-
-#             # 2. Pad or Crop to fixed size (Critical for batch training)
-#             if signal.shape[1] > self.num_samples:
-#                 # Crop: Take the center part (often more representative)
-#                 center = signal.shape[1] // 2
-#                 start = center - (self.num_samples // 2)
-#                 signal = signal[:, start: start + self.num_samples]
-
-#             elif signal.shape[1] < self.num_samples:
-#                 # Pad: Add zeros at the end
-#                 padding = self.num_samples - signal.shape[1]
-#                 signal = torch.nn.functional.pad(signal, (0, padding))
-
-#             return signal, str(audio_path)
-
-#         except Exception as e:
-#             print(f"❌ Corrupted file {audio_path}: {e}")
-#             # Return silent tensor to prevent crash
-#             return torch.zeros((1, self.num_samples)), str(audio_path)
+            return torch.zeros((2, 128, 1000)), str(spec_path)

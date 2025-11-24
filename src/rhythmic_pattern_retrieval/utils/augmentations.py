@@ -16,7 +16,7 @@ class ContrastiveAugmentations(nn.Module):
 
     def forward(self, x):
         """
-        input : x (original spectrogram) [Batch, 1, 128, Time]
+        input : x (original spectrogram) [Batch, 2, 128, Time]
         output : (x_i, x_j) --> two augmented versions of the spectrogram
         """
         return self.augment(x), self.augment(x)
