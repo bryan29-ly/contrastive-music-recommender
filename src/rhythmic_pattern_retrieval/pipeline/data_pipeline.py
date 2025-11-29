@@ -5,16 +5,21 @@ from rhythmic_pattern_retrieval.data.dataset import SpectrogramDataset
 from rhythmic_pattern_retrieval.utils.augmentations import ContrastiveAugmentations
 
 
-def create_contrastive_dataloader(batch_size=32, debug_limit=None, shuffle=True):
-    dataset = SpectrogramDataset(
-        root_dir=PROCESSED_DATA_DIR, debug_limit=debug_limit)
+def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=256, debug_limit=None, shuffle=True, num_workers=0):
+    if dataset is None:
+        dataset = SpectrogramDataset(
+            root_dir=PROCESSED_DATA_DIR,
+            crop_size=crop_size,
+            debug_limit=debug_limit
+        )
 
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        num_workers=0,
-        pin_memory=True
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=True
     )
 
     augment = ContrastiveAugmentations(
@@ -31,7 +36,7 @@ def test_pipeline():
     print("🚀 Testing Data Pipeline...")
 
     dataloader, augmenter = create_contrastive_dataloader(
-        batch_size=4, debug_limit=5)
+        batch_size=4, crop_size=256, debug_limit=5)
 
     for batch_idx, (spectrograms, paths) in enumerate(dataloader):
         print(f"\n📦 Batch {batch_idx + 1}")

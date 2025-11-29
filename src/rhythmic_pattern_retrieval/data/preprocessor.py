@@ -47,23 +47,30 @@ class Preprocessor:
 
         # Separations Drums & Bass
         sources = apply_model(self.separator, wav, shifts=0)
-        drums_audio = sources[0, 0, :, :]
-        bass_audio = sources[0, 1, :, :]
-        # Fusion
-        rhythm_section = drums_audio + bass_audio
-        # Mono
-        rhythm_section = torch.mean(rhythm_section, dim=0)
+        drums_audio = sources[0, 0, :, :].mean(dim=0)
+        bass_audio = sources[0, 1, :, :].mean(dim=0)
+
         # Resample
-        rhythm_section = resample_audio(
-            rhythm_section, ref_sr, SAMPLE_RATE, self.device)
-        # Pad
-        rhythm_section = pad_or_crop_audio(
-            rhythm_section, SAMPLE_RATE * DURATION)
-        # Spectrogram
-        spec_image = compute_mel_spectrogram(rhythm_section.cpu(), SAMPLE_RATE)
+        drums_audio = resample_audio(
+            drums_audio, ref_sr, SAMPLE_RATE, self.device)
+        bass_audio = resample_audio(
+            bass_audio, ref_sr, SAMPLE_RATE, self.device)
+
+        # Crop/Pad
+        target_len = int(SAMPLE_RATE * DURATION)
+        drums_audio = pad_or_crop_audio(drums_audio, target_len)
+        bass_audio = pad_or_crop_audio(bass_audio, target_len)
+
+        # Compute spectrogramm
+        drums_spec = compute_mel_spectrogram(drums_audio.cpu(), SAMPLE_RATE)
+        bass_spec = compute_mel_spectrogram(bass_audio.cpu(), SAMPLE_RATE)
+
+        # Tensor
+        final_tensor = torch.stack([drums_spec, bass_spec], dim=0)
 
         # Save
-        torch.save(spec_image, save_path)
+        torch.save(final_tensor, save_path)
+
         return save_path
 
     def preprocess_dataset(self):
