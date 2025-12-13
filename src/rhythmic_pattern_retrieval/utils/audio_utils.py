@@ -34,3 +34,17 @@ def compute_mel_spectrogram(audio_tensor, sr, n_mels=128, n_fft=2048, hop_length
         (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
 
     return torch.tensor(mel_spec_db).float()
+
+
+def get_valid_frames(audio_np, hop_length=512, threshold_ratio=0.4):
+    if len(audio_np.shape) > 1:
+        audio_np = np.mean(audio_np, axis=0)
+    # Compute RMS
+    rms = librosa.feature.rms(
+        y=audio_np, frame_length=2048, hop_length=hop_length)[0]
+    # Set a threshold
+    threshold = threshold_ratio * np.max(rms)
+    # Get the meaningful frames
+    valid_indices = np.where(rms > threshold)
+
+    return valid_indices

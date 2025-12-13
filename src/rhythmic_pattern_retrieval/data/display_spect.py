@@ -5,9 +5,9 @@ import numpy as np
 from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR, SAMPLE_RATE
 
 
-def show_bass_drums_spectrogram():
+def show_bass_drums_spectrogram(track):
     # On cherche le fichier spécifique ou on en prend un au hasard
-    file_path = PROCESSED_DATA_DIR / "135336.pt"  # Ton fichier test
+    file_path = PROCESSED_DATA_DIR / track  # Ton fichier test
 
     if not file_path.exists():
         # Fallback si le fichier spécifique n'existe pas
@@ -70,4 +70,5 @@ def show_bass_drums_spectrogram():
 
 
 if __name__ == "__main__":
-    show_bass_drums_spectrogram()
+    show_bass_drums_spectrogram("071694.pt")
+    show_bass_drums_spectrogram("006439.pt")
