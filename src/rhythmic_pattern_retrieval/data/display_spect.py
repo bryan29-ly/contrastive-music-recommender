@@ -81,4 +81,4 @@ def show_mel_spectrogram(track_name):
 
 if __name__ == "__main__":
     # Test avec un fichier qui existe chez toi (ex: le premier trouvé)
-    show_mel_spectrogram("135043.pt")
+    show_mel_spectrogram("109537.pt")
