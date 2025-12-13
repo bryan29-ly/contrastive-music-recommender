@@ -1,86 +1,99 @@
+import argparse
 import torch
 import librosa
-import certifi
 from tqdm import tqdm
-from demucs import pretrained
-from demucs.apply import apply_model
-import os
+import multiprocessing
+from joblib import Parallel, delayed
 
-from rhythmic_pattern_retrieval.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, SAMPLE_RATE, DURATION
-from rhythmic_pattern_retrieval.utils.audio_utils import compute_mel_spectrogram, pad_or_crop_audio, resample_audio
-from rhythmic_pattern_retrieval.utils.device import get_device
+from rhythmic_pattern_retrieval.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, SAMPLE_RATE
+from rhythmic_pattern_retrieval.utils.audio_utils import compute_mel_spectrogram, resample_audio, get_valid_frames
 
-os.environ['SSL_CERT_FILE'] = certifi.where()
-os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+# os.environ['SSL_CERT_FILE'] = certifi.where()
+# os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 
 
 class Preprocessor:
-    def __init__(self, device=None, limit=None):
-        self.device = device or get_device()
+    def __init__(self, limit=None, n_jobs=None):
         self.limit = limit
-        self.separator = pretrained.get_model("htdemucs")
-        self.separator.to(self.device)
+        self.n_jobs = n_jobs if n_jobs else max(
+            1, multiprocessing.cpu_count() - 1)
 
     def preprocess_file(self, mp3_path):
         save_path = PROCESSED_DATA_DIR / f"{mp3_path.stem}.pt"
         if save_path.exists():
             return None
 
-        # Loading with Librosa
-        wav_np, sr = librosa.load(str(mp3_path), sr=None, mono=False)
-        # Convertion Numpy --> Tensor
-        wav = torch.from_numpy(wav_np).float()
+        try:
+            # Loading with Librosa
+            wav_np, sr = librosa.load(str(mp3_path), sr=None, mono=True)
+            wav = torch.from_numpy(wav_np).float()
 
-        # Librosa return (channels, time) for stereo, or (time,) for mono
-        if wav.dim() == 1:
-            wav = wav.unsqueeze(0)
-            # Become (2, time), artificial stereo for Demucs
-            wav = wav.repeat(2, 1)
-        elif wav.dim() == 2 and wav.shape[0] == 1:
-            wav = wav.repeat(2, 1)
-        # Add a dimension for Batch
-        wav = wav.unsqueeze(0).to(self.device)
+            # Resampling
+            if wav.dim() == 1:
+                wav = wav.unsqueeze(0)
 
-        ref_sr = self.separator.samplerate
-        if sr != ref_sr:
-            wav = resample_audio(wav, sr, ref_sr, self.device)
+            if sr != SAMPLE_RATE:
+                wav = resample_audio(wav, sr, SAMPLE_RATE)
 
-        # Separations Drums & Bass
-        sources = apply_model(self.separator, wav, shifts=0)
-        drums_audio = sources[0, 0, :, :].mean(dim=0)
-        bass_audio = sources[0, 1, :, :].mean(dim=0)
+            # Mel spec
+            full_mel_spec = compute_mel_spectrogram(wav, SAMPLE_RATE)
 
-        # Resample
-        drums_audio = resample_audio(
-            drums_audio, ref_sr, SAMPLE_RATE, self.device)
-        bass_audio = resample_audio(
-            bass_audio, ref_sr, SAMPLE_RATE, self.device)
+            if full_mel_spec.dim() == 2:
+                full_mel_spec = full_mel_spec.unsqueeze(0)
 
-        # Crop/Pad
-        target_len = int(SAMPLE_RATE * DURATION)
-        drums_audio = pad_or_crop_audio(drums_audio, target_len)
-        bass_audio = pad_or_crop_audio(bass_audio, target_len)
+            wav_squeezed = wav.squeeze().numpy()
 
-        # Compute spectrogramm
-        drums_spec = compute_mel_spectrogram(drums_audio.cpu(), SAMPLE_RATE)
-        bass_spec = compute_mel_spectrogram(bass_audio.cpu(), SAMPLE_RATE)
+            valid_indices = get_valid_frames(
+                wav_squeezed, hop_length=256, threshold_ratio=0.4)
 
-        # Tensor
-        final_tensor = torch.stack([drums_spec, bass_spec], dim=0)
+            data_to_save = {
+                "mel": full_mel_spec,  # Tensor
+                "valid_indices": valid_indices  # Numpy array
+            }
 
-        # Save
-        torch.save(final_tensor, save_path)
+            torch.save(data_to_save, save_path)
+            return save_path
 
-        return save_path
+        except Exception as e:
+            print(f"Error processing {mp3_path.name}: {e}")
+            return None
 
     def preprocess_dataset(self):
-        print(f"Device used : {self.device.type.upper()}.")
+        print(
+            f"Device for processing: CPU (Multi-core with {self.n_jobs} jobs)")
         audio_files = list(RAW_DATA_DIR.glob("**/*.mp3"))
         if self.limit:
             audio_files = audio_files[:self.limit]
-        for mp3_path in tqdm(audio_files, desc="Processing"):
-            try:
-                self.preprocess_file(mp3_path)
-            except Exception as e:
-                print(f"Error on {mp3_path.name}: {e}")
-        print(f"Done! Data in {PROCESSED_DATA_DIR}")
+
+        print(f"Starting processing of {len(audio_files)} files...")
+
+        # Parallelisation
+        results = Parallel(n_jobs=self.n_jobs, backend="loky")(
+            delayed(self.preprocess_file)(mp3_path)
+            for mp3_path in tqdm(audio_files, desc="Preprocessing", unit="track")
+        )
+
+        # Count the successes
+        success_count = sum(1 for r in results if r is not None)
+        print(
+            f"Done! {success_count}/{len(audio_files)} processed successfully.")
+        print(f"Data saved in {PROCESSED_DATA_DIR}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Preprocess Dataset for Groove Retrieval")
+
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Limit the number of files to process (useful for testing)")
+
+    parser.add_argument("--jobs", type=int, default=None,
+                        help="Number of CPU jobs (default: max - 1)")
+
+    args = parser.parse_args()
+
+    processor = Preprocessor(
+        limit=args.limit,
+        n_jobs=args.jobs,
+    )
+    processor.preprocess_dataset()

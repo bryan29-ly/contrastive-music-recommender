@@ -4,71 +4,81 @@ import librosa.display
 import numpy as np
 from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR, SAMPLE_RATE
 
+# IMPORTANT : Doit correspondre à la valeur utilisée dans le préprocesseur
+HOP_LENGTH = 256
 
-def show_bass_drums_spectrogram(track):
-    # On cherche le fichier spécifique ou on en prend un au hasard
-    file_path = PROCESSED_DATA_DIR / track  # Ton fichier test
 
+def show_mel_spectrogram(track_name):
+    """
+    Affiche le Mel Spectrogramme et les zones de 'Valid Indices' détectées.
+    """
+    # 1. Recherche du fichier
+    file_path = PROCESSED_DATA_DIR / track_name
+
+    # Si le fichier exact n'existe pas, on cherche s'il a été renommé ou on prend le premier dispo
     if not file_path.exists():
-        # Fallback si le fichier spécifique n'existe pas
+        print(
+            f"⚠️ Fichier {track_name} introuvable. Recherche d'un fichier .pt disponible...")
         files = list(PROCESSED_DATA_DIR.glob("*.pt"))
         if not files:
-            print(f"❌ Aucun fichier trouvé dans {PROCESSED_DATA_DIR}")
+            print(f"❌ Aucun fichier .pt trouvé dans {PROCESSED_DATA_DIR}")
             return
         file_path = files[0]
 
     print(f"👀 Visualisation de : {file_path.name}")
 
-    # Chargement du tenseur [2, 128, Time]
-    spec_tensor = torch.load(file_path)
+    # 2. Chargement (CORRECTION ICI)
+    # weights_only=False est nécessaire car on charge des numpy arrays
+    data = torch.load(file_path, weights_only=False)
 
-    # Vérification de la forme
-    if spec_tensor.dim() != 3 or spec_tensor.shape[0] != 2:
-        print(
-            f"⚠️ Attention: Ce fichier n'a pas le format attendu [2, 128, T]. Shape: {spec_tensor.shape}")
+    # Gestion de la compatibilité (Dictionnaire vs Ancien Tenseur)
+    if isinstance(data, dict):
+        mel_tensor = data["mel"]             # Shape attendue: [1, 128, T]
+        valid_indices = data["valid_indices"]  # Numpy array
+    else:
+        # Cas legacy
+        mel_tensor = data
+        valid_indices = []
+
+    # 3. Préparation pour l'affichage (Conversion Tensor -> Numpy 2D)
+    if mel_tensor.dim() == 3:
+        mel_spec = mel_tensor.squeeze(0).numpy()
+    elif mel_tensor.dim() == 2:
+        mel_spec = mel_tensor.numpy()
+    else:
+        print(f"❌ Format de tenseur inconnu : {mel_tensor.shape}")
         return
 
-    # Séparation des canaux et conversion en Numpy
-    # Canal 0 = Drums, Canal 1 = Bass
-    drums_spec = spec_tensor[0].numpy()
-    bass_spec = spec_tensor[1].numpy()
+    # 4. Affichage
+    plt.figure(figsize=(14, 6))
 
-    # Création de la figure avec 2 sous-graphiques (l'un sous l'autre)
-    fig, ax = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-
-    # 1. Plot Drums (Haut)
-    img_drums = librosa.display.specshow(
-        drums_spec,
+    # A. Le Spectrogramme
+    librosa.display.specshow(
+        mel_spec,
         sr=SAMPLE_RATE,
-        hop_length=512,
+        hop_length=HOP_LENGTH,
         x_axis='time',
         y_axis='mel',
         fmax=8000,
-        cmap='magma',
-        ax=ax[0]
+        cmap='magma'
     )
-    ax[0].set_title(f"Drums (Canal 0) - {file_path.stem}")
-    fig.colorbar(img_drums, ax=ax[0], format='%+2.0f dB')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title(f"Mel Spectrogram - {file_path.stem}")
 
-    # 2. Plot Bass (Bas)
-    img_bass = librosa.display.specshow(
-        bass_spec,
-        sr=SAMPLE_RATE,
-        hop_length=512,
-        x_axis='time',
-        y_axis='mel',
-        # On peut réduire fmax pour la basse si on veut zoomer sur les graves (ex: 1000)
-        fmax=8000,
-        cmap='viridis',  # Changement de couleur pour bien distinguer
-        ax=ax[1]
-    )
-    ax[1].set_title(f"Basse (Canal 1) - {file_path.stem}")
-    fig.colorbar(img_bass, ax=ax[1], format='%+2.0f dB')
+    # B. Visualisation des 'Valid Indices'
+    if len(valid_indices) > 0:
+        times = valid_indices * HOP_LENGTH / SAMPLE_RATE
+        plt.vlines(times, ymin=0, ymax=10, color='cyan',
+                   alpha=0.5, linewidth=1, label='Valid Anchor')
+        plt.legend(loc='upper right')
+        print(f"✅ {len(valid_indices)} points d'intérêt (Groove) détectés.")
+    else:
+        print("⚠️ Aucun index valide trouvé (Silence ou seuil trop haut).")
 
     plt.tight_layout()
     plt.show()
 
 
 if __name__ == "__main__":
-    show_bass_drums_spectrogram("071694.pt")
-    show_bass_drums_spectrogram("006439.pt")
+    # Test avec un fichier qui existe chez toi (ex: le premier trouvé)
+    show_mel_spectrogram("135043.pt")

@@ -5,7 +5,7 @@ from rhythmic_pattern_retrieval.data.dataset import SpectrogramDataset
 from rhythmic_pattern_retrieval.utils.augmentations import ContrastiveAugmentations
 
 
-def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=256, debug_limit=None, shuffle=True, num_workers=0):
+def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=600, debug_limit=None, shuffle=True, num_workers=0):
     if dataset is None:
         dataset = SpectrogramDataset(
             root_dir=PROCESSED_DATA_DIR,
@@ -25,7 +25,8 @@ def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=256, de
     augment = ContrastiveAugmentations(
         time_mask_param=40,
         freq_mask_param=20,
-        noise_level=0.01
+        noise_level=0.01,
+        gain_range=0.2
     )
 
     return dataloader, augment
@@ -36,17 +37,27 @@ def test_pipeline():
     print("🚀 Testing Data Pipeline...")
 
     dataloader, augmenter = create_contrastive_dataloader(
-        batch_size=4, crop_size=256, debug_limit=5)
+        batch_size=4, crop_size=600, debug_limit=10)
 
-    for batch_idx, (spectrograms, paths) in enumerate(dataloader):
+    # Dataset returns View1, View2, Path
+    for batch_idx, (view1_raw, view2_raw, paths) in enumerate(dataloader):
         print(f"\n📦 Batch {batch_idx + 1}")
-        print(f"   Original shape: {spectrograms.shape}")
 
-        view1, view2 = augmenter(spectrograms)
+        # 1. On reçoit les crops bruts du Dataset
+        print(f"   Raw View1 shape: {view1_raw.shape}")  # [Batch, 1, 128, 600]
+        print(f"   Raw View2 shape: {view2_raw.shape}")
 
-        print(f"   View1 shape: {view1.shape}")
-        print(f"   View2 shape: {view2.shape}")
+        # 2. On applique les augmentations (Masque, Bruit) sur chaque vue SÉPARÉMENT
+        # L'augmenter doit être capable de prendre un tenseur et de le rendre modifié
+        view1_aug = augmenter(view1_raw)
+        view2_aug = augmenter(view2_raw)
+
+        print(f"   Aug View1 shape: {view1_aug.shape}")
+        print(f"   Aug View2 shape: {view2_aug.shape}")
         print(f"   Files: {[p.split('/')[-1] for p in paths[:2]]}")
+
+        # Vérification des valeurs (pour être sûr que c'est pas vide)
+        print(f"   Max value in View1: {view1_aug.max().item():.4f}")
 
         if batch_idx >= 1:
             break
