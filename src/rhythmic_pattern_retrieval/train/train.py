@@ -18,8 +18,8 @@ from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR, MODELS_DIR
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 # --- FIX IMPORT RUNPOD ---
-current_dir = os.getcwd()
-sys.path.append(os.path.join(current_dir, "src"))
+# current_dir = os.getcwd()
+# sys.path.append(os.path.join(current_dir, "src"))
 
 
 def get_args():
@@ -74,7 +74,7 @@ def train():
     args = get_args()
     device = get_device()
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"   - Device: {device.type.upper()}")
     print(f"   - Batch Size: {args.batch_size}")
     print(f"   - Epochs: {args.epochs}")
