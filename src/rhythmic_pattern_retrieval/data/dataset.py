@@ -29,30 +29,11 @@ class SpectrogramDataset(Dataset):
     def __len__(self):
         return len(self.spectrogram_files)
 
-    def _get_smart_crop(self, full_spec, valid_indices):
-        time_steps = full_spec.shape[-1]
-
-        # Padding if the file is too long
-        if time_steps <= self.crop_size:
-            pad_size = self.crop_size - time_steps
-            return torch.nn.functional.pad(full_spec, (0, pad_size))
-
-        # Starting choice
-        if len(valid_indices) > 0:
-            # Choose a timing
-            anchor = np.random.choice(valid_indices)
-
-            # Offset the anchor
-            offset = random.randint(0, self.crop_size // 2)
-            start = anchor - offset
-
-            # Stay in the size of the file
-            start = max(0, min(start, time_steps - self.crop_size))
-        else:
-            # Fallback
-            start = random.randint(0, time_steps - self.crop_size)
-
-        return full_spec[..., start: start + self.crop_size]
+    def _pad_if_needed(self, spec):
+        if spec.shape[-1] < self.crop_size:
+            pad_size = self.crop_size - spec.shape[-1]
+            return torch.nn.functional.pad(spec, (0, pad_size))
+        return spec
 
     def __getitem__(self, index):
         """
@@ -63,7 +44,7 @@ class SpectrogramDataset(Dataset):
         spec_path = self.spectrogram_files[index]
 
         try:
-            # Load precomputed spectrogram
+            # 1. Load precomputed spectrogram
             data = torch.load(spec_path, weights_only=False)
             if isinstance(data, dict):
                 full_spec = data["mel"]
@@ -72,8 +53,44 @@ class SpectrogramDataset(Dataset):
                 full_spec = data
                 valid_indices = []
 
-            view1 = self._get_smart_crop(full_spec, valid_indices)
-            view2 = self._get_smart_crop(full_spec, valid_indices)
+            time_steps = full_spec.shape[-1]
+
+            # 2. Base anchor point
+            # if file is too short
+            if time_steps <= self.crop_size:
+                base_start = 0
+            # RMS valid zones
+            elif len(valid_indices) > 0:
+                anchor = np.random.choice(valid_indices)
+                offset = random.randint(0, self.crop_size // 2)
+                base_start = anchor - offset
+            # If no RMS info
+            else:
+                base_start = random.randint(
+                    0, max(0, time_steps - self.crop_size))
+
+            # Security on base_start
+            max_start = max(0, time_steps - self.crop_size)
+            base_start = max(0, min(base_start, max_start))
+
+            # 3. Views with Jitter (temporale shift)
+            jitter_range = 25  # +/- 25 frames
+
+            # View 1 : base + shift
+            shift1 = random.randint(-jitter_range, jitter_range)
+            start1 = max(0, min(base_start + shift1,
+                         time_steps - self.crop_size))
+            view1_crop = full_spec[..., start1: start1 + self.crop_size]
+
+            # View 2 : base + shift
+            shift2 = random.randint(-jitter_range, jitter_range)
+            start2 = max(0, min(base_start + shift2,
+                         time_steps - self.crop_size))
+            view2_crop = full_spec[..., start2: start2 + self.crop_size]
+
+            # 4. Final padding
+            view1 = self._pad_if_needed(view1_crop)
+            view2 = self._pad_if_needed(view2_crop)
 
             return view1, view2, str(spec_path)
 

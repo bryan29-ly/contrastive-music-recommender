@@ -130,7 +130,7 @@ def train():
     augment = augment.to(device)  # on GPU
 
     criterion = NTXentLoss(temperature=0.5).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
 
     # Scheduler
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
