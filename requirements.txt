@@ -1,5 +1,4 @@
 certifi
-demucs
 librosa
 matplotlib
 numpy

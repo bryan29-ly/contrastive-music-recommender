@@ -51,8 +51,8 @@ class GrooveMatcher:
 
         # Peak energy strategy
         # 6 sec
-        WINDOW = 256
-        STRIDE = 128
+        WINDOW = 600
+        STRIDE = 300
 
         # Sécurité si le fichier est plus court que la fenêtre
         if spec.shape[-1] < WINDOW:

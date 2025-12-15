@@ -6,6 +6,7 @@ from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
+import math
 import os
 import sys
 
@@ -30,7 +31,7 @@ def get_args():
                         help="Batch size (Mac: 32-64, RunPod: 256-512)")
     parser.add_argument("--workers", type=int, default=4,
                         help="Num workers dataloader")
-    parser.add_argument("--patience", type=int, default=15, help="Patience")
+    parser.add_argument("--patience", type=int, default=75, help="Patience")
 
     # Training parameter
     parser.add_argument("--epochs", type=int, default=5,
@@ -68,6 +69,16 @@ def save_checkpoint(model, optimizer, epoch, loss, filename="checkpoint.pth"):
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': loss
     }, save_path)
+
+
+def get_cosine_schedule_warmup(optimizer, num_warmup_steps, num_training_steps):
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        progress = float(current_step - num_warmup_steps) / \
+            float(max(1, num_training_steps - num_warmup_steps))
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
 def train():
@@ -130,10 +141,19 @@ def train():
     augment = augment.to(device)  # on GPU
 
     criterion = NTXentLoss(temperature=0.5).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+
+    # Steps for scheduler
+    steps_per_epoch = len(train_loader)
+    total_steps = args.epochs * steps_per_epoch
+    warmup_steps = int(total_steps * 0.1)  # 10% of the training for the warmup
 
     # Scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
+    scheduler = get_cosine_schedule_warmup(
+        optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_steps
+    )
 
     # Monitoring
     history = []
@@ -176,10 +196,12 @@ def train():
             if device.type == "cuda":
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
+                scheduler.step()
                 scaler.update()
             else:
                 loss.backward()
                 optimizer.step()
+                scheduler.step()
 
             total_train_loss += loss.item()
             progress_bar.set_postfix({'loss': f"{loss.item():.4f}"})
@@ -206,8 +228,6 @@ def train():
         # Stats
         avg_train = total_train_loss / len(train_loader)
         avg_val = total_val_loss / len(val_loader)
-
-        scheduler.step()
 
         # Logging & Save
         print(

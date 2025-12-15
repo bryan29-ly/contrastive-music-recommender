@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=(1, 1)):
-        super.__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(
             in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
@@ -37,7 +37,7 @@ class ResBlock(nn.Module):
 # 2. Attention Pooling
 class AttentionPooling(nn.Module):
     def __init__(self, input_dim):
-        super.__init__()
+        super().__init__()
         self.attention = nn.Sequential(
             nn.Linear(input_dim, 128),
             nn.Tanh(),
@@ -57,7 +57,7 @@ class AttentionPooling(nn.Module):
 # 3. Principal encoder
 class RhythmicEncoder(nn.Module):
     def __init__(self, projection_dim=128):
-        super.__init__()
+        super().__init__()
 
         # 1. Stem (enter)
         # Kernel 5x5, stride (2, 1)
@@ -80,9 +80,11 @@ class RhythmicEncoder(nn.Module):
 
         # 4. Projection head for simCLR
         self.projection_head = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, projection_dim)
+            nn.Linear(512, 512, bias=False),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, projection_dim, bias=False),
+            nn.BatchNorm1d(projection_dim)
         )
 
     def _make_layer(self, in_channels, out_channels, stride):

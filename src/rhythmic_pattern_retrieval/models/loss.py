@@ -20,6 +20,7 @@ class NTXentLoss(nn.Module):
 
         # Similarity matrix
         sim_matrix = torch.mm(z, z.T) / self.temperature
+        sim_matrix = sim_matrix.float()
 
         # Hide the diagonal (don't compare an image with itself)
         mask = torch.eye(2 * batch_size, dtype=torch.bool).to(z.device)

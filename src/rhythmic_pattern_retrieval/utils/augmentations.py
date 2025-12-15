@@ -48,7 +48,13 @@ class ContrastiveAugmentations(nn.Module):
                 out = F.pad(out, (0, pad_size), mode='constant', value=0)
 
         # 3. Masking
+        # Mask Time 1
         out = self.time_masking(out)
+        # Mask Time 2
+        out = self.time_masking(out)
+        # Mask Freq 1
+        out = self.freq_masking(out)
+        # Mask Freq 2
         out = self.freq_masking(out)
 
         # 4. Gaussian Noise (Texture)
