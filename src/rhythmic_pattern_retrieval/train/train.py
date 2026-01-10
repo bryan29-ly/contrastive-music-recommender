@@ -10,17 +10,14 @@ import math
 import os
 import sys
 
+from rhythmic_pattern_retrieval.utils.reproducibility import seed_everything
 from rhythmic_pattern_retrieval.models.loss import NTXentLoss
 from rhythmic_pattern_retrieval.models.encoder import RhythmicEncoder
 from rhythmic_pattern_retrieval.pipeline.data_pipeline import create_contrastive_dataloader
 from rhythmic_pattern_retrieval.utils.device import get_device
 from rhythmic_pattern_retrieval.data.dataset import SpectrogramDataset
-from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR, MODELS_DIR
+from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR, MODELS_DIR, DATA_DIR
 from torch.optim.lr_scheduler import CosineAnnealingLR
-
-# --- FIX IMPORT RUNPOD ---
-# current_dir = os.getcwd()
-# sys.path.append(os.path.join(current_dir, "src"))
 
 
 def get_args():
@@ -37,7 +34,7 @@ def get_args():
     parser.add_argument("--epochs", type=int, default=5,
                         help="Nombre d'epochs")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning Rate")
-    parser.add_argument("--crop_size", type=int, default=600,
+    parser.add_argument("--crop_size", type=int, default=512,
                         help="Taille du crop temporel")
 
     return parser.parse_args()
@@ -58,7 +55,7 @@ def save_plots(history_df):
     plt.close()
 
 
-def save_checkpoint(model, optimizer, epoch, loss, filename="checkpoint.pth"):
+def save_checkpoint(model, optimizer, scheduler, scaler, epoch, loss, args, filename="checkpoint.pth"):
     "Save the state of the model"
     save_path = MODELS_DIR / filename
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -67,6 +64,9 @@ def save_checkpoint(model, optimizer, epoch, loss, filename="checkpoint.pth"):
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'scaler_state_dict': scaler.state_dict() if scaler else None,
+        'args': vars(args),
         'loss': loss
     }, save_path)
 
@@ -104,18 +104,17 @@ def train():
 
     # Data pipeline
     print("Loading data...")
-    fulldataset = SpectrogramDataset(
-        root_dir=PROCESSED_DATA_DIR,
-        crop_size=args.crop_size
-    )
 
     # split Train / Validatioin
-    val_size = int(len(fulldataset) * 0.1)
-    train_size = len(fulldataset) - val_size
+    train_ids = pd.read_csv(DATA_DIR / "train_ids.csv",
+                            header=None)[0].tolist()
+    val_ids = pd.read_csv(DATA_DIR / "val_ids.csv", header=None)[0].tolist()
 
-    train_dataset, val_dataset = random_split(
-        fulldataset, [train_size, val_size]
-    )
+    train_dataset = SpectrogramDataset(
+        root_dir=PROCESSED_DATA_DIR, ids_list=train_ids, crop_size=args.crop_size)
+    val_dataset = SpectrogramDataset(
+        root_dir=PROCESSED_DATA_DIR, ids_list=val_ids, crop_size=args.crop_size)
+
     print(f"    - Train samples : {len(train_dataset)}")
     print(f"    - Val samples : {len(val_dataset)}")
 
@@ -246,15 +245,16 @@ def train():
         if avg_val < best_val_loss:
             best_val_loss = avg_val
             patience_counter = 0  # Counter reset
-            save_checkpoint(model, optimizer, epoch, avg_val, "best_model.pth")
+            save_checkpoint(model, optimizer, scheduler, scaler,
+                            epoch, avg_val, args, "best_model.pth")
             print("   New Best Model Saved!")
         else:
             patience_counter += 1
             print(
                 f"   No improvement. Patience: {patience_counter}/{args.patience}")
 
-        save_checkpoint(model, optimizer, epoch,
-                        avg_val, "last_checkpoint.pth")
+        save_checkpoint(model, optimizer, scheduler, scaler, epoch,
+                        avg_val, args, "last_checkpoint.pth")
 
         # Stop
         if patience_counter >= args.patience:
@@ -265,4 +265,5 @@ def train():
 
 
 if __name__ == "__main__":
+    seed_everything(314)
     train()

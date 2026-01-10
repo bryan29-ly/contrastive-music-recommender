@@ -8,14 +8,31 @@ from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR
 
 
 class SpectrogramDataset(Dataset):
-    """Dataset for loading preprocessed drums+bass mel spectrograms."""
+    """Dataset for loading preprocessed mel spectrograms."""
 
-    def __init__(self, root_dir=PROCESSED_DATA_DIR, crop_size=600, debug_limit=None):
+    def __init__(self, root_dir=PROCESSED_DATA_DIR, ids_list=None, crop_size=512, debug_limit=None):
         self.root_dir = Path(root_dir)
         self.crop_size = crop_size
+        self.spectrogram_files = []
 
-        print(f"Scanning spectrograms in {self.root_dir}...")
-        self.spectrogram_files = list(self.root_dir.glob("*.pt"))
+        print(f"Initializing Dataset with ids_list={ids_list is not None}...")
+
+        if ids_list is not None:
+            missing_count = 0
+            for track_id in ids_list:
+                filename = f"{int(track_id):06d}.pt"
+                file_path = self.root_dir / filename
+
+                if file_path.exists():
+                    self.spectrogram_files.append(file_path)
+                else:
+                    missing_count += 1
+            if missing_count > 0:
+                print(
+                    f"{missing_count} IDs from list missing in {self.root_dir} (skipped).")
+        else:
+            print(f"Scanning all spectrograms in {self.root_dir}")
+            self.spectrogram_files = list(self.root_dir.glob("*.pt"))
 
         if debug_limit is not None and len(self.spectrogram_files) > debug_limit:
             self.spectrogram_files = self.spectrogram_files[:debug_limit]

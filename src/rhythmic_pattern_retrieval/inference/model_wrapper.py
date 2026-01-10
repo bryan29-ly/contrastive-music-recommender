@@ -51,7 +51,7 @@ class GrooveMatcher:
 
         # Peak energy strategy
         # 6 sec
-        WINDOW = 600
+        WINDOW = 512
         STRIDE = 300
 
         # Sécurité si le fichier est plus court que la fenêtre

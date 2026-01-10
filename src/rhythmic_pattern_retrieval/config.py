@@ -13,7 +13,8 @@ MODELS_DIR = PROJECT_ROOT/"models_output"
 
 METADATA_DIR = DATA_DIR / "metadata/fma_metadata"
 
-METADATA_PATH = METADATA_DIR / "tracks.csv"
+METADATA_TRACKS_PATH = METADATA_DIR / "tracks.csv"
+METADATA_GENRES_PATH = METADATA_DIR / "genres.csv"
 
 
 # Automatic creation

@@ -1,3 +1,6 @@
+import torch
+import numpy as np
+import random
 from torch.utils.data import DataLoader
 
 from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR
@@ -5,7 +8,16 @@ from rhythmic_pattern_retrieval.data.dataset import SpectrogramDataset
 from rhythmic_pattern_retrieval.utils.augmentations import ContrastiveAugmentations
 
 
-def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=600, debug_limit=None, shuffle=True, num_workers=0):
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
+def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=512, debug_limit=None, shuffle=True, num_workers=0, seed=314):
+    g = torch.Generator()
+    g.manual_seed(seed)
+
     if dataset is None:
         dataset = SpectrogramDataset(
             root_dir=PROCESSED_DATA_DIR,
@@ -18,6 +30,8 @@ def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=600, de
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
+        worker_init_fn=seed_worker,
+        generator=g,
         pin_memory=True,
         drop_last=True
     )
