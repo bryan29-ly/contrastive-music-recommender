@@ -11,6 +11,11 @@ DATABASE_DATA_DIR = DATA_DIR/"database"
 
 MODELS_DIR = PROJECT_ROOT/"models_output"
 
+METADATA_DIR = DATA_DIR / "metadata/fma_metadata"
+
+METADATA_PATH = METADATA_DIR / "tracks.csv"
+
+
 # Automatic creation
 for path in [RAW_DATA_DIR, PROCESSED_DATA_DIR, DATABASE_DATA_DIR, MODELS_DIR]:
     path.mkdir(parents=True, exist_ok=True)
