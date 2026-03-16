@@ -1,0 +1,11 @@
+certifi
+librosa
+matplotlib
+numpy
+pandas
+soundfile
+torch
+torchaudio
+torchvision
+tqdm
+setuptools
