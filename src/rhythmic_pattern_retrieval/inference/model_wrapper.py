@@ -30,31 +30,21 @@ class GrooveMatcher:
             self.vector_matrix = np.stack(self.database['vector'].values)
 
     def get_embeddings(self, pt_file_path):
-        """Transform a file .pt into a vector"""
-        # 1. On charge l'objet complet (dictionnaire ou tenseur)
         data = torch.load(pt_file_path, weights_only=False)
 
-        # 2. On vérifie le type pour extraire le bon tenseur
         if isinstance(data, dict):
-            # Si c'est le nouveau format pré-traité (dict avec 'melspec' et 'valid_indices')
             spec = data['mel']
-            # Note: On ignore 'valid_indices' pour l'instant et on fait confiance
-            # à ta stratégie 'Peak Energy' ci-dessous qui est très robuste.
         else:
-            # Si c'est un ancien fichier (juste le tenseur)
             spec = data
 
-        # 3. On envoie sur le Device (GPU/MPS) maintenant qu'on a le tenseur
         spec = spec.to(self.device)
-
-        # --- A PARTIR D'ICI, C'EST TON CODE D'ORIGINE ---
 
         # Peak energy strategy
         # 6 sec
         WINDOW = 512
         STRIDE = 300
 
-        # Sécurité si le fichier est plus court que la fenêtre
+        # Security
         if spec.shape[-1] < WINDOW:
             pad = WINDOW - spec.shape[-1]
             spec = F.pad(spec, (0, pad))
@@ -80,7 +70,6 @@ class GrooveMatcher:
         return embedding.cpu().numpy()
 
     def search(self, query_vector, top_k=5):
-        """Search the neighbors in the loaded database."""
         if self.database is None:
             raise ValueError("No database loaded.")
         # Cosine distance

@@ -16,6 +16,7 @@ from rhythmic_pattern_retrieval.models.encoder import RhythmicEncoder
 from rhythmic_pattern_retrieval.pipeline.data_pipeline import create_contrastive_dataloader
 from rhythmic_pattern_retrieval.utils.device import get_device
 from rhythmic_pattern_retrieval.data.dataset import SpectrogramDataset
+from rhythmic_pattern_retrieval.train.metrics import compute_alignment_uniformity
 from rhythmic_pattern_retrieval.config import PROCESSED_DATA_DIR, MODELS_DIR, DATA_DIR
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
@@ -42,16 +43,38 @@ def get_args():
 
 def save_plots(history_df):
     """Save loss curves."""
-    plt.figure(figsize=(10, 6))
-    plt.plot(history_df['epoch'], history_df['train_loss'], label='Train Loss')
-    plt.plot(history_df['epoch'], history_df['val_loss'],
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+    # Plot 1 : Losses
+    ax1.plot(history_df['epoch'], history_df['train_loss'], label='Train Loss')
+    ax1.plot(history_df['epoch'], history_df['val_loss'],
              label='Validation Loss', linestyle='--')
-    plt.xlabel('Epochs')
-    plt.ylabel('NT-Xent Loss')
-    plt.title('Training & Validation Loss Curve')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(MODELS_DIR / "loss_curve.png")
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
+    ax1.set_title('NT-Xent Loss')
+    ax1.legend()
+    ax1.grid(True)
+
+    # Plot 2 : Metrics
+    ax2.set_xlabel('Epochs')
+    ax2.set_title('Alignment & Uniformity (Validation)')
+    ax2.grid(True)
+
+    color = 'tab:blue'
+    ax2.set_ylabel('Alignment', color=color)
+    ax2.plot(history_df['epoch'], history_df['align'],
+             color=color, label='Alignment')
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    ax3 = ax2.twinx()  # Deuxième axe Y
+    color = 'tab:orange'
+    ax3.set_ylabel('Uniformity', color=color)
+    ax3.plot(history_df['epoch'], history_df['unif'],
+             color=color, linestyle='--', label='Uniformity')
+    ax3.tick_params(axis='y', labelcolor=color)
+
+    plt.tight_layout()
+    plt.savefig(MODELS_DIR / "training_curves.png")
     plt.close()
 
 
@@ -208,6 +231,8 @@ def train():
         # Validation
         model.eval()
         total_val_loss = 0
+        total_align = 0
+        total_unif = 0
 
         with torch.no_grad():
             for view1_raw, view2_raw, _ in val_loader:
@@ -221,20 +246,26 @@ def train():
                     _, z1 = model(view1)
                     _, z2 = model(view2)
                     loss = criterion(z1, z2)
+                    align, unif = compute_alignment_uniformity(z1, z2)
 
                 total_val_loss += loss.item()
+                total_align += align.item()
+                total_unif += unif.item()
 
         # Stats
         avg_train = total_train_loss / len(train_loader)
         avg_val = total_val_loss / len(val_loader)
+        avg_align = total_align / len(val_loader)
+        avg_unif = total_unif / len(val_loader)
 
         # Logging & Save
         print(
             f"   Stats: Train Loss = {avg_train:.4f} | Val Loss = {avg_val:.4f}")
+        print(f"   Metrics: Align = {avg_align:.4f} | Unif = {avg_unif:.4f}")
 
         # Save in the history
         history.append(
-            {'epoch': epoch + 1, 'train_loss': avg_train, 'val_loss': avg_val, 'lr': current_lr})
+            {'epoch': epoch + 1, 'train_loss': avg_train, 'val_loss': avg_val, 'align': avg_align, 'unif': avg_unif, 'lr': current_lr})
         df_history = pd.DataFrame(history)
         df_history.to_csv(MODELS_DIR / "training_log.csv", index=False)
 
@@ -261,7 +292,7 @@ def train():
             print(f"\nEarly Stopping triggered at epoch {epoch+1}!")
             break
 
-    print(f"\n✅ Training complete! Check {MODELS_DIR} for logs and plots.")
+    print(f"\nTraining complete! Check {MODELS_DIR} for logs and plots.")
 
 
 if __name__ == "__main__":

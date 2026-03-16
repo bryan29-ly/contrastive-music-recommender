@@ -1,6 +1,7 @@
 import argparse
 import multiprocessing
 from pathlib import Path
+import pandas as pd
 
 import torch
 import librosa
@@ -8,7 +9,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from rhythmic_pattern_retrieval.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, SAMPLE_RATE
+from rhythmic_pattern_retrieval.config import DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, SAMPLE_RATE
 from rhythmic_pattern_retrieval.utils.audio_utils import compute_mel_spectrogram, resample_audio, get_valid_frames
 
 
@@ -29,6 +30,27 @@ class Preprocessor:
 
         start = (duration / 2) - (self.target_duration / 2)
         return start, self.target_duration
+
+    def _get_whitelist_ids(self):
+        whitelist = set()
+        splits = ["train", "val", "test"]
+        found_any = False
+        print("Loading whitelist from split files...")
+        for split in splits:
+            file_path = DATA_DIR / f"{split}_ids.csv"
+            if file_path.exists():
+                ids = pd.read_csv(file_path, header=None)[0].to_list()
+                whitelist.update(ids)
+                found_any = True
+                print(f"   - Loaded {len(ids)} IDs from {split}_ids.csv")
+            else:
+                print(f" Warning: {file_path} not found.")
+
+        if not found_any:
+            raise FileNotFoundError(
+                "0 file found ! Run build_splits.py first.")
+        print(f"Total Whitelist: {len(whitelist)} unique tracks to process.")
+        return whitelist
 
     def preprocess_file(self, mp3_path: Path):
         save_path = PROCESSED_DATA_DIR / f"{mp3_path.stem}.pt"
@@ -80,7 +102,26 @@ class Preprocessor:
     def preprocess_dataset(self):
         print(
             f"Device for processing: CPU (Multi-core with {self.n_jobs} jobs)")
-        audio_files = list(RAW_DATA_DIR.glob("**/*.mp3"))
+
+        # 1. Load whitelist
+        whitelist = self._get_whitelist_ids()
+
+        # 2. Scan all audio files
+        print("Scanning raw audio files...")
+        all_audio_files = list(RAW_DATA_DIR.glob("**/*.mp3"))
+
+        # 3. Filter
+        audio_files = []
+        for f in all_audio_files:
+            try:
+                track_id = int(f.stem)
+                if track_id in whitelist:
+                    audio_files.append(f)
+            except ValueError:
+                continue
+        print(
+            f"Filtered: Keeping {len(audio_files)} files out of {len(all_audio_files)} found on disk.")
+
         if self.limit:
             audio_files = audio_files[:self.limit]
 

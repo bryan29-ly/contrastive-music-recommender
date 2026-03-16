@@ -48,14 +48,14 @@ def create_contrastive_dataloader(dataset=None, batch_size=32, crop_size=512, de
 
 def test_pipeline():
     """Teste le pipeline de données et affiche les shapes."""
-    print("🚀 Testing Data Pipeline...")
+    print("Testing Data Pipeline...")
 
     dataloader, augmenter = create_contrastive_dataloader(
         batch_size=4, crop_size=600, debug_limit=10)
 
     # Dataset returns View1, View2, Path
     for batch_idx, (view1_raw, view2_raw, paths) in enumerate(dataloader):
-        print(f"\n📦 Batch {batch_idx + 1}")
+        print(f"\nBatch {batch_idx + 1}")
 
         # 1. On reçoit les crops bruts du Dataset
         print(f"   Raw View1 shape: {view1_raw.shape}")  # [Batch, 1, 128, 600]
@@ -76,7 +76,7 @@ def test_pipeline():
         if batch_idx >= 1:
             break
 
-    print("\n✅ Pipeline test complete!")
+    print("\nPipeline test complete!")
 
 
 if __name__ == "__main__":
