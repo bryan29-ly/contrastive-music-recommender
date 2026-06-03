@@ -1,0 +1,10 @@
+raw_dir: data/raw
+segments_dir: data/segments
+splits_dir: data/splits
+metadata_dir: data/metadata/fma_metadata
+
+segment_seconds: 12
+n_segments_per_track: 3         # to reduce is the track is short (FMA 30s -> 1-2)
+min_track_seconds: 20 
+crop_frames: 512                # contrastive view ~6 s
+cross_segment_prob: 0.5         # 50% of inter-segment pairs (global signature)

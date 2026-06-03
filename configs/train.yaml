@@ -1,0 +1,11 @@
+  seed: 314
+  batch_size: 512          # cluster GPU
+  epochs: 200 
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  warmup_ratio: 0.1
+  temperature: 0.15        # retrieval-friendly
+  num_workers: 8
+  amp: true
+  patience: 30
+  out_dir: models_output

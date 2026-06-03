@@ -1,0 +1,11 @@
+time_stretch:
+  enabled: true
+  range: [0.90, 1.10]    # ±10% : tempo tolerent without destroying the groove
+  prob: 0.5
+gain_range: 0.2
+spec_masking:
+  time_mask_param: 20    # low to not mask a kick
+  freq_mask_param: 20    
+  n_time_masks: 1
+  n_freq_masks: 1
+noise_level: 0.01

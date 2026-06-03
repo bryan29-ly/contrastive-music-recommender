@@ -1,0 +1,11 @@
+sample_rate: 22050
+n_fft: 2048
+win_length: 2048
+hop_length: 256
+n_mels: 128 
+power: 2.0
+mel_norm: slaney
+mel_scale: htk
+top_db: 80 
+norm_mean: null
+norm_std: null
