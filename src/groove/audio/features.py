@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import torch
 import torch.nn as nn
 import torchaudio.transforms as T
@@ -42,7 +44,11 @@ class LogMelSpectrogram(nn.Module):
             wav = wav.unsqueeze(0)
 
         # Compute the STFT in fp32 even under AMP: cuFFT is unstable in fp16.
-        with torch.autocast(device_type=wav.device.type, enabled=False):
+        # Only needed to override an enclosing CUDA autocast; elsewhere (MPS/CPU)
+        # a plain context avoids constructing an unsupported autocast.
+        amp_off = (torch.autocast(device_type="cuda", enabled=False)
+                   if wav.device.type == "cuda" else nullcontext())
+        with amp_off:
             mel = self.mel(wav.float())
             mel = torch.log(mel + self.log_eps)  # batch-independent compression
 

@@ -18,7 +18,7 @@ class ContrastivePairDataset(Dataset):
     """
 
     def __init__(self, manifest_path, segments_dir, split, crop_frames,
-                 hop_length, cross_segment_prob):
+                 hop_length, cross_segment_prob, limit=None):
         self.segments_dir = Path(segments_dir)
         self.cross_segment_prob = cross_segment_prob
         # crop length in samples chosen so the mel yields exactly crop_frames.
@@ -29,6 +29,8 @@ class ContrastivePairDataset(Dataset):
 
         # One dataset item per segment; the segment is the pair's anchor.
         self.items = df["segment_path"].tolist()
+        if limit is not None:  # debug mode: keep a small subset
+            self.items = self.items[:limit]
         # Group segment paths by track to find cross-segment partners.
         self.by_track = df.groupby("track_id")["segment_path"].apply(list).to_dict()
         self.track_of = dict(zip(df["segment_path"], df["track_id"]))
