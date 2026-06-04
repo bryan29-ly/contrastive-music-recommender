@@ -1,11 +1,17 @@
+# All augmentations preserve rhythm/groove. They are applied on the log-mel,
+# on GPU, in the training loop. Amplitudes assume standardized input (~unit std).
 time_stretch:
   enabled: true
-  range: [0.90, 1.10]    # ±10% : tempo tolerent without destroying the groove
+  range: [0.90, 1.10]    # ±10% tempo tolerance, without destroying the groove
   prob: 0.5
-gain_range: 0.2
+gain_range: 0.2          # loudness invariance (additive offset in log domain)
+eq:
+  enabled: true
+  n_bands: 8             # control points of the smooth random frequency curve
+  strength: 0.8          # max +/- offset along the mel axis (mastering invariance)
 spec_masking:
-  time_mask_param: 20    # low to not mask a kick
-  freq_mask_param: 20    
+  time_mask_param: 20    # low, so a full beat is never erased
+  freq_mask_param: 20
   n_time_masks: 1
   n_freq_masks: 1
-noise_level: 0.01
+noise_std: 0.05          # light texture robustness (relative to standardized scale)

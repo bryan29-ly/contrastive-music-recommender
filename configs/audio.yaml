@@ -6,6 +6,5 @@ n_mels: 128
 power: 2.0
 mel_norm: slaney
 mel_scale: htk
-top_db: 80 
 norm_mean: null
 norm_std: null

@@ -27,7 +27,10 @@ class LogMelSpectrogram(nn.Module):
             center=True,
             pad_mode="reflect",
         )
-        self.to_db = T.AmplitudeToDB(stype="power", top_db=cfg.top_db)
+        # Fixed log-compression. We deliberately avoid AmplitudeToDB, whose
+        # top_db floor is relative to the per-tensor max and would make the
+        # output depend on batch composition (train/inference inconsistency).
+        self.log_eps = 1e-5
         # Global standardization stats (computed once over the dataset).
         # None until estimated -> the normalization step is skipped.
         self.norm_mean = cfg.norm_mean
@@ -41,7 +44,7 @@ class LogMelSpectrogram(nn.Module):
         # Compute the STFT in fp32 even under AMP: cuFFT is unstable in fp16.
         with torch.autocast(device_type=wav.device.type, enabled=False):
             mel = self.mel(wav.float())
-            mel = self.to_db(mel)
+            mel = torch.log(mel + self.log_eps)  # batch-independent compression
 
         if self.norm_mean is not None and self.norm_std is not None:
             mel = (mel - self.norm_mean) / (self.norm_std + 1e-8)
