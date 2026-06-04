@@ -20,6 +20,7 @@ dependencies = [
     "torchvision>=0.24.1",
     "tqdm>=4.67.1",
     "omegaconf>=2.3",
+    "joblib>=1.5.2",
 ]
 
 [build-system]

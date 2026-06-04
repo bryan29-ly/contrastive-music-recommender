@@ -46,19 +46,26 @@ def select_segments(wav_np, sr, segment_seconds, n_segments):
     cumsum = np.concatenate([[0.0], np.cumsum(salience)])
     window_scores = (cumsum[seg_frames:] - cumsum[:-seg_frames]) / seg_frames
 
-    # Greedy, non-overlapping selection of the top-scoring windows.
-    order = np.argsort(window_scores)[::-1]
-    selected_frames = []
-    for frame_start in order:
-        if len(selected_frames) >= n_segments:
-            break
-        if all(abs(frame_start - s) >= seg_frames for s in selected_frames):
-            selected_frames.append(int(frame_start))
+    # Only ask for as many windows as actually fit without overlap, so we never
+    # emit near-duplicates (a 30 s clip holds two 12 s windows, not three). The
+    # windows are then placed left to right: each is the most salient one in the
+    # range that still leaves room for the remaining windows. This guarantees the
+    # count, keeps them non-overlapping, and favours the groove-heavy sections.
+    n_starts = len(window_scores)
+    k = min(n_segments, max(1, n_frames // seg_frames))
 
-    selected_frames.sort()
+    selected_frames, min_start = [], 0
+    for j in range(k):
+        max_start = n_starts - 1 - (k - 1 - j) * seg_frames
+        if max_start < min_start:
+            break
+        band = np.arange(min_start, max_start + 1)
+        best = int(band[np.argmax(window_scores[band])])
+        selected_frames.append(best)
+        min_start = best + seg_frames
+
     segments = []
     for f in selected_frames:
-        start = min(f * ANALYSIS_HOP, n_samples -
-                    seg_len)  # clamp inside track
+        start = min(f * ANALYSIS_HOP, n_samples - seg_len)  # clamp inside track
         segments.append((start, start + seg_len))
     return segments

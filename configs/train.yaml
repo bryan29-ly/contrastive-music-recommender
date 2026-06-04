@@ -8,5 +8,6 @@ warmup_ratio: 0.1        # share of total steps spent warming up the LR
 temperature: 0.15        # NT-Xent, retrieval-friendly
 num_workers: 8
 amp: true                # mixed precision (CUDA only)
-patience: 30             # early-stopping patience (epochs)
+early_stopping: false    # SSL: trust the full cosine schedule; last.pt is the deliverable
+patience: 30             # early-stopping patience in epochs (only used if early_stopping)
 out_dir: models_output

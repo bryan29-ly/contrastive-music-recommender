@@ -3,6 +3,7 @@ from groove.data.dataset import ContrastivePairDataset
 from groove.data.transforms import RhythmSafeAugment
 from groove.models.encoder import RhythmicEncoder
 from groove.models.losses import NTXentLoss
+from groove.training.metrics import representation_metrics
 from groove.utils.device import get_device
 from groove.utils.seed import seed_everything
 import csv
@@ -103,17 +104,28 @@ def _save_checkpoint(path, model, optimizer, scheduler, epoch, val_loss, cfg):
 
 def _save_curves(history, path):
     epochs = [h["epoch"] for h in history]
-    plt.figure(figsize=(8, 5))
-    plt.plot(epochs, [h["train_loss"] for h in history], label="train")
-    plt.plot(epochs, [h["val_loss"] for h in history], label="val")
-    plt.xlabel("epoch")
-    plt.ylabel("NT-Xent loss")
-    plt.title("Contrastive training")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(path, dpi=120)
-    plt.close()
+    fig, (ax_loss, ax_acc, ax_au) = plt.subplots(1, 3, figsize=(16, 5))
+
+    ax_loss.plot(epochs, [h["train_loss"] for h in history], label="train")
+    ax_loss.plot(epochs, [h["val_loss"] for h in history], label="val")
+    ax_loss.set(xlabel="epoch", ylabel="NT-Xent loss", title="Contrastive loss")
+
+    # In-batch retrieval accuracy: the most readable proxy for the actual task.
+    ax_acc.plot(epochs, [h["val_acc1"] for h in history], label="top-1")
+    ax_acc.plot(epochs, [h["val_acc5"] for h in history], label="top-5")
+    ax_acc.set(xlabel="epoch", ylabel="accuracy", title="In-batch retrieval (val)")
+
+    # Wang & Isola (2020) proxies; both go down as the space improves.
+    ax_au.plot(epochs, [h["val_align"] for h in history], label="alignment")
+    ax_au.plot(epochs, [h["val_uniform"] for h in history], label="uniformity")
+    ax_au.set(xlabel="epoch", title="Alignment / uniformity (val)")
+
+    for ax in (ax_loss, ax_acc, ax_au):
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
 
 
 # --- training ---------------------------------------------------------------
@@ -126,7 +138,8 @@ def _forward_pair(v1, v2, mel, augment, model, criterion, device, amp_ctx):
         m2 = augment(mel(v2))
         _, z1 = model(m1)
         _, z2 = model(m2)
-        return criterion(z1, z2)
+        loss = criterion(z1, z2)
+    return loss, z1, z2
 
 
 def train(cfg, name=None, debug=False):
@@ -174,8 +187,14 @@ def train(cfg, name=None, debug=False):
     scheduler = _cosine_warmup(
         optimizer, int(total_steps * cfg.warmup_ratio), total_steps)
 
-    history, best_val, patience = [], float("inf"), 0
-    history_path = run_dir / "history.csv"
+    history, history_path = [], run_dir / "history.csv"
+    # Best model is tracked on an EMA-smoothed val loss: the contrastive val
+    # loss is noisy, so the raw minimum often lands on a variance dip rather than
+    # a genuinely better epoch. last.pt (final cosine epoch) is the deliverable;
+    # best.pt is a safety net. Early stopping is off by default (trust the
+    # schedule's low-LR annealing); enable it via cfg.early_stopping.
+    best_val, ema_val, patience = float("inf"), None, 0
+    early_stopping = bool(cfg.get("early_stopping", False))
 
     for epoch in range(1, cfg.epochs + 1):
         # --- train ---
@@ -185,8 +204,8 @@ def train(cfg, name=None, debug=False):
         bar = tqdm(train_loader, desc=f"epoch {epoch}/{cfg.epochs} [train]",
                    leave=False)
         for i, (v1, v2) in enumerate(bar):
-            loss = _forward_pair(v1, v2, mel, augment, model, criterion,
-                                 device, amp_ctx)
+            loss, _, _ = _forward_pair(v1, v2, mel, augment, model, criterion,
+                                       device, amp_ctx)
             scaler.scale(loss / accum).backward()
             if (i + 1) % accum == 0:
                 scaler.step(optimizer)
@@ -198,25 +217,36 @@ def train(cfg, name=None, debug=False):
             bar.set_postfix(loss=f"{loss.item():.3f}")
         train_loss /= max(1, n)
 
-        # --- validation ---
+        # --- validation (+ cheap in-batch retrieval proxies) ---
         model.eval()
         val_loss, n = 0.0, 0
+        agg = {"align": 0.0, "uniform": 0.0, "acc1": 0.0,
+               "acc5": 0.0, "emb_std": 0.0}
         with torch.no_grad():
             for v1, v2 in tqdm(val_loader, desc=f"epoch {epoch}/{cfg.epochs} [val]",
                                leave=False):
-                loss = _forward_pair(v1, v2, mel, augment, model, criterion,
-                                     device, amp_ctx)
+                loss, z1, z2 = _forward_pair(v1, v2, mel, augment, model,
+                                             criterion, device, amp_ctx)
+                metrics = representation_metrics(z1, z2)
                 val_loss += loss.item()
+                for key in agg:
+                    agg[key] += metrics[key]
                 n += 1
         val_loss /= max(1, n)
+        for key in agg:
+            agg[key] /= max(1, n)
 
         lr = optimizer.param_groups[0]["lr"]
+        ema_val = val_loss if ema_val is None else 0.7 * ema_val + 0.3 * val_loss
         logger.info(f"epoch {epoch}/{cfg.epochs} | train {train_loss:.4f} | "
-                    f"val {val_loss:.4f} | lr {lr:.2e}")
+                    f"val {val_loss:.4f} | acc1 {agg['acc1']:.3f} | "
+                    f"align {agg['align']:.3f} | uniform {agg['uniform']:.3f} | "
+                    f"std {agg['emb_std']:.3f} | lr {lr:.2e}")
 
         # --- log + checkpoints ---
         history.append({"epoch": epoch, "train_loss": train_loss,
-                        "val_loss": val_loss, "lr": lr})
+                        "val_loss": val_loss,
+                        **{f"val_{k}": v for k, v in agg.items()}, "lr": lr})
         with open(history_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=history[0].keys())
             writer.writeheader()
@@ -225,17 +255,17 @@ def train(cfg, name=None, debug=False):
         _save_checkpoint(run_dir / "last.pt", model, optimizer, scheduler,
                          epoch, val_loss, cfg)
 
-        if val_loss < best_val:
-            best_val, patience = val_loss, 0
+        if ema_val < best_val:
+            best_val, patience = ema_val, 0
             _save_checkpoint(run_dir / "best.pt", model, optimizer, scheduler,
                              epoch, val_loss, cfg)
-            logger.info("  new best model saved")
+            logger.info("  new best model saved (smoothed val loss)")
         else:
             patience += 1
-            if patience >= cfg.patience:
+            if early_stopping and patience >= cfg.patience:
                 logger.info(f"early stopping at epoch {epoch}")
                 break
 
     logger.info(
-        f"done. best val loss = {best_val:.4f} | artifacts in {run_dir}")
+        f"done. best smoothed val loss = {best_val:.4f} | artifacts in {run_dir}")
     return run_dir

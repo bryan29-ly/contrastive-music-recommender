@@ -495,6 +495,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
+    { name = "joblib" },
     { name = "librosa" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -514,6 +515,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "certifi", specifier = ">=2025.11.12" },
+    { name = "joblib", specifier = ">=1.5.2" },
     { name = "librosa", specifier = ">=0.11.0" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.3.5" },

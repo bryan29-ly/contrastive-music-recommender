@@ -27,19 +27,20 @@ class ContrastivePairDataset(Dataset):
         df = pd.read_csv(manifest_path, dtype={"track_id": str})
         df = df[df["split"] == split].reset_index(drop=True)
 
-        # One dataset item per segment; the segment is the pair's anchor.
-        self.items = df["segment_path"].tolist()
-        if limit is not None:  # debug mode: keep a small subset
-            self.items = self.items[:limit]
-        # Group segment paths by track to find cross-segment partners.
+        # One dataset item per *track* (instance discrimination): a track is
+        # drawn once per epoch and its two views are the only positive pair, so
+        # two segments of the same track are never sampled as separate anchors
+        # in a batch -> no same-track false negatives in the NT-Xent loss.
         self.by_track = df.groupby("track_id")["segment_path"].apply(list).to_dict()
-        self.track_of = dict(zip(df["segment_path"], df["track_id"]))
+        self.track_ids = list(self.by_track.keys())
+        if limit is not None:  # debug mode: keep a small subset
+            self.track_ids = self.track_ids[:limit]
 
-        print(f"[{split}] {len(self.items)} segments / "
-              f"{len(self.by_track)} tracks.")
+        n_seg = sum(len(self.by_track[t]) for t in self.track_ids)
+        print(f"[{split}] {len(self.track_ids)} tracks / {n_seg} segments.")
 
     def __len__(self):
-        return len(self.items)
+        return len(self.track_ids)
 
     def _load_crop(self, rel_path):
         """Read a random crop_samples window from a FLAC segment (mono float32)."""
@@ -58,12 +59,12 @@ class ContrastivePairDataset(Dataset):
         return wav
 
     def __getitem__(self, index):
-        anchor = self.items[index]
-        siblings = self.by_track[self.track_of[anchor]]
+        segments = self.by_track[self.track_ids[index]]
+        anchor = random.choice(segments)
 
         view1 = self._load_crop(anchor)
-        if len(siblings) > 1 and random.random() < self.cross_segment_prob:
-            other = random.choice([s for s in siblings if s != anchor])
+        if len(segments) > 1 and random.random() < self.cross_segment_prob:
+            other = random.choice([s for s in segments if s != anchor])
             view2 = self._load_crop(other)
         else:
             view2 = self._load_crop(anchor)  # independent crop of same segment
