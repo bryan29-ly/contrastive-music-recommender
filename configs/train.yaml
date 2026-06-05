@@ -1,0 +1,13 @@
+seed: 314
+batch_size: 1024         # target on the big GPU (~80GB); use --batch_size to override
+accum_steps: 1           # gradient accumulation (smooths gradients; see trainer note)
+epochs: 200
+lr: 2.0e-3               # AdamW base LR for batch ~1024
+weight_decay: 1.0e-4
+warmup_ratio: 0.1        # share of total steps spent warming up the LR
+temperature: 0.15        # NT-Xent, retrieval-friendly
+num_workers: 8
+amp: true                # mixed precision (CUDA only)
+early_stopping: false    # SSL: trust the full cosine schedule; last.pt is the deliverable
+patience: 30             # early-stopping patience in epochs (only used if early_stopping)
+out_dir: models_output

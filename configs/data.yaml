@@ -1,0 +1,17 @@
+audio_dir: data/raw            # your own tracks (any folder, nested ok)
+segments_dir: data/segments    # waveform segments (FLAC int16) + manifest
+catalog_path: data/catalog.csv
+
+# random split ratios (folder mode)
+val_ratio: 0.1
+test_ratio: 0.1
+
+# segment selection (offline)
+segment_seconds: 12
+n_segments_per_track: 3
+min_track_seconds: 20
+crop_frames: 512               # contrastive view length (~6 s of mel frames)
+cross_segment_prob: 0.5        # prob. of drawing the two views from different segments
+
+# FMA metadata mode (optional, --source fma)
+fma_metadata_dir: data/metadata/fma_metadata
