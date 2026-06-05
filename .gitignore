@@ -212,5 +212,8 @@ __marimo__/
 # Models weights
 /models_output/
 
+# Generated embeddings / projections
+/embeddings_output/
+
 # DS Store for Mac
 .DS_Store

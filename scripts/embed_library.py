@@ -16,25 +16,34 @@ import numpy as np
 import pandas as pd
 
 from groove.config import load_config
-from groove.retrieval.embed import embed_library, load_encoder
+from groove.retrieval.embed import (DEFAULT_CHECKPOINT, embed_library,
+                                     load_encoder)
 from groove.utils.device import get_device
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Embed a library into vectors.")
-    parser.add_argument("--checkpoint", required=True, help="Path to a .pt run checkpoint.")
-    parser.add_argument("--split", default=None, help="Restrict to one split (e.g. test).")
-    parser.add_argument("--out", default="embeddings_output", help="Output directory.")
-    parser.add_argument("--batch_size", type=int, default=256)
+    parser = argparse.ArgumentParser(
+        description="Embed a library into vectors.")
+    parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT,
+                        help="Local .pt path or a Hugging Face repo id (auto-downloaded).")
+    parser.add_argument("--split", default=None,
+                        help="Restrict to one split (e.g. test).")
+    parser.add_argument("--out", default="embeddings_output",
+                        help="Output directory.")
+    parser.add_argument("--batch_size", type=int, default=128)
     args = parser.parse_args()
 
-    paths = load_config("data")  # local data paths (the library being embedded)
+    # local data paths (the library being embedded)
+    paths = load_config("data")
     device = get_device()
-    model, mel, cfg = load_encoder(args.checkpoint, device)  # audio params from training
+    # audio params from training
+    model, mel, cfg = load_encoder(args.checkpoint, device)
 
-    manifest = pd.read_csv(Path(paths.segments_dir) / "manifest.csv", dtype={"track_id": str})
+    manifest = pd.read_csv(Path(paths.segments_dir) /
+                           "manifest.csv", dtype={"track_id": str})
     if args.split:
-        manifest = manifest[manifest["split"] == args.split].reset_index(drop=True)
+        manifest = manifest[manifest["split"] ==
+                            args.split].reset_index(drop=True)
     print(f"device={device.type} | embedding {manifest['track_id'].nunique()} tracks "
           f"({len(manifest)} segments)" + (f" [split={args.split}]" if args.split else ""))
 
