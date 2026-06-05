@@ -21,6 +21,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "omegaconf>=2.3",
     "joblib>=1.5.2",
+    "opentsne>=1.0.4",
+    "huggingface-hub>=1.18.0",
 ]
 
 [build-system]

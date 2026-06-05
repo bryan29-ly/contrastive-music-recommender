@@ -17,14 +17,36 @@ from omegaconf import OmegaConf
 from groove.audio.features import LogMelSpectrogram
 from groove.models.encoder import RhythmicEncoder
 
+# Pretrained weights published on the Hugging Face Hub. Used by default so the
+# recommendation pipeline runs without training. Set this to your own repo after
+# uploading a checkpoint (see the README).
+DEFAULT_CHECKPOINT = "bryan29-ly/groove-rhythm-simclr"
+
+
+def resolve_checkpoint(ref, filename="best.pt"):
+    """Resolve a checkpoint reference to a local file path.
+
+    ``ref`` is either a local path (used as-is) or a Hugging Face Hub repo id,
+    optionally ``repo_id:filename``, which is downloaded and cached locally. This
+    lets the pretrained model be fetched on demand rather than committed to git.
+    """
+    if Path(ref).exists():
+        return str(ref)
+    repo_id, _, fname = ref.partition(":")
+    from huggingface_hub import hf_hub_download
+    return hf_hub_download(repo_id=repo_id, filename=fname or filename)
+
 
 def load_encoder(checkpoint_path, device):
     """Rebuild the encoder + log-mel front-end from a training checkpoint.
 
-    Returns (model, mel, cfg), both modules in eval mode so BatchNorm uses its
-    running statistics and the output is deterministic.
+    ``checkpoint_path`` may be a local file or a Hugging Face repo id. The log-mel
+    normalization stats are read from the checkpoint config, so inference matches
+    training exactly. Returns (model, mel, cfg), both modules in eval mode so
+    BatchNorm uses its running statistics and the output is deterministic.
     """
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    ckpt = torch.load(resolve_checkpoint(checkpoint_path),
+                      map_location=device, weights_only=False)
     cfg = OmegaConf.create(ckpt["config"])
     model = RhythmicEncoder(cfg).to(device).eval()
     model.load_state_dict(ckpt["model_state_dict"])
