@@ -20,7 +20,7 @@ window for beatmatched DJ transitions.
 With [uv](https://github.com/astral-sh/uv) (recommended):
 
 ```bash
-git clone [<your-repo-url>](https://github.com/bryan29-ly/contrastive-music-recommender.git)
+git clone https://github.com/bryan29-ly/contrastive-music-recommender.git
 cd contrastive-music-recommender
 uv sync
 ```
