@@ -4,11 +4,11 @@ time_stretch:
   enabled: true
   range: [0.90, 1.10]    # ±10% tempo tolerance, without destroying the groove
   prob: 0.5
-gain_range: 0.2          # loudness invariance (additive offset in log domain)
+gain_range: 0.36         # +/- 6 dB once scaled by the norm std; covers master loudness
 eq:
   enabled: true
   n_bands: 8             # control points of the smooth random frequency curve
-  strength: 0.8          # max +/- offset along the mel axis (mastering invariance)
+  strength: 0.6          # mastering invariance, kept below the natural timbre spread
 spec_masking:
   time_mask_param: 20    # low, so a full beat is never erased
   freq_mask_param: 20

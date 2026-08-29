@@ -32,7 +32,12 @@ logger = logging.getLogger("groove")
 
 # --- setup helpers ----------------------------------------------------------
 
-def _setup_run_dir(cfg, name):
+def _setup_run_dir(cfg, name, resume):
+    if resume:
+        run_dir = Path(resume)
+        if not (run_dir / "last.pt").exists():
+            raise FileNotFoundError(f"nothing to resume: no last.pt in {run_dir}")
+        return run_dir
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = Path(cfg.out_dir) / (f"{stamp}_{name}" if name else stamp)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -102,18 +107,40 @@ def _save_checkpoint(path, model, optimizer, scheduler, epoch, val_loss, cfg):
     }, path)
 
 
+def _restore(run_dir, model, optimizer, scheduler):
+    """Reload last.pt + history.csv to continue an interrupted run.
+
+    The LR schedule is rebuilt from the config, so batch_size and epochs must be
+    unchanged for the remaining steps to line up with the original cosine curve.
+    """
+    ckpt = torch.load(run_dir / "last.pt", map_location="cpu", weights_only=False)
+    model.load_state_dict(ckpt["model_state_dict"])
+    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+    scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+
+    history_path = run_dir / "history.csv"
+    history = []
+    if history_path.exists():
+        with open(history_path, newline="") as f:
+            history = [{k: (int(v) if k == "epoch" else float(v))
+                        for k, v in row.items()} for row in csv.DictReader(f)]
+    return ckpt["epoch"] + 1, history
+
+
 def _save_curves(history, path):
     epochs = [h["epoch"] for h in history]
     fig, (ax_loss, ax_acc, ax_au) = plt.subplots(1, 3, figsize=(16, 5))
 
     ax_loss.plot(epochs, [h["train_loss"] for h in history], label="train")
     ax_loss.plot(epochs, [h["val_loss"] for h in history], label="val")
-    ax_loss.set(xlabel="epoch", ylabel="NT-Xent loss", title="Contrastive loss")
+    ax_loss.set(xlabel="epoch", ylabel="NT-Xent loss",
+                title="Contrastive loss")
 
     # In-batch retrieval accuracy: the most readable proxy for the actual task.
     ax_acc.plot(epochs, [h["val_acc1"] for h in history], label="top-1")
     ax_acc.plot(epochs, [h["val_acc5"] for h in history], label="top-5")
-    ax_acc.set(xlabel="epoch", ylabel="accuracy", title="In-batch retrieval (val)")
+    ax_acc.set(xlabel="epoch", ylabel="accuracy",
+               title="In-batch retrieval (val)")
 
     # Wang & Isola (2020) proxies; both go down as the space improves.
     ax_au.plot(epochs, [h["val_align"] for h in history], label="alignment")
@@ -131,21 +158,22 @@ def _save_curves(history, path):
 # --- training ---------------------------------------------------------------
 
 def _forward_pair(v1, v2, mel, augment, model, criterion, device, amp_ctx):
+    """Encode both views in a single pass, so BatchNorm normalizes the two sides
+    of a positive pair with the same statistics."""
     v1 = v1.to(device, non_blocking=True)
     v2 = v2.to(device, non_blocking=True)
     with amp_ctx():
-        m1 = augment(mel(v1))
-        m2 = augment(mel(v2))
-        _, z1 = model(m1)
-        _, z2 = model(m2)
+        views = torch.cat([augment(mel(v1)), augment(mel(v2))])
+        _, z = model(views)
+        z1, z2 = z.chunk(2)
         loss = criterion(z1, z2)
     return loss, z1, z2
 
 
-def train(cfg, name=None, debug=False):
+def train(cfg, name=None, debug=False, resume=None):
     seed_everything(cfg.seed, deterministic=debug)
     device = get_device()
-    run_dir = _setup_run_dir(cfg, name)
+    run_dir = _setup_run_dir(cfg, name, resume)
     _setup_logger(run_dir)
 
     # Load global standardization stats (computed by compute_norm_stats.py).
@@ -170,6 +198,11 @@ def train(cfg, name=None, debug=False):
         return autocast("cuda") if use_amp else nullcontext()
 
     train_loader, val_loader = _build_loaders(cfg, debug)
+    for split, loader in (("train", train_loader), ("val", val_loader)):
+        if len(loader) == 0:
+            raise RuntimeError(
+                f"{split} split yields 0 batches: fewer tracks than "
+                f"batch_size={cfg.batch_size} with drop_last=True.")
     logger.info(f"device={device.type} amp={use_amp} batch={cfg.batch_size} "
                 f"accum={cfg.accum_steps} | train_batches={len(train_loader)} "
                 f"val_batches={len(val_loader)}")
@@ -187,7 +220,12 @@ def train(cfg, name=None, debug=False):
     scheduler = _cosine_warmup(
         optimizer, int(total_steps * cfg.warmup_ratio), total_steps)
 
-    history, history_path = [], run_dir / "history.csv"
+    history_path = run_dir / "history.csv"
+    start_epoch, history = 1, []
+    if resume:
+        start_epoch, history = _restore(run_dir, model, optimizer, scheduler)
+        logger.info(f"resumed from {run_dir.name}, continuing at epoch {start_epoch}")
+
     # Best model is tracked on an EMA-smoothed val loss: the contrastive val
     # loss is noisy, so the raw minimum often lands on a variance dip rather than
     # a genuinely better epoch. last.pt (final cosine epoch) is the deliverable;
@@ -195,8 +233,11 @@ def train(cfg, name=None, debug=False):
     # schedule's low-LR annealing); enable it via cfg.early_stopping.
     best_val, ema_val, patience = float("inf"), None, 0
     early_stopping = bool(cfg.get("early_stopping", False))
+    for h in history:  # replay so a resumed run keeps its best/EMA state
+        ema_val = h["val_loss"] if ema_val is None else 0.7 * ema_val + 0.3 * h["val_loss"]
+        best_val = min(best_val, ema_val)
 
-    for epoch in range(1, cfg.epochs + 1):
+    for epoch in range(start_epoch, cfg.epochs + 1):
         # --- train ---
         model.train()
         optimizer.zero_grad()

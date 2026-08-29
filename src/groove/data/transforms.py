@@ -69,7 +69,9 @@ class RhythmSafeAugment(nn.Module):
             start = (t - target_t) // 2
             return x[..., start:start + target_t]
         if t < target_t:
-            return F.pad(x, (0, target_t - t))
+            # Replicate rather than zero-pad: after standardization a zero block
+            # is the dataset mean, a constant the model can key on.
+            return F.pad(x, (0, target_t - t, 0, 0), mode="replicate")
         return x
 
     def _random_eq(self, b, n_mels, device):

@@ -12,6 +12,7 @@ Usage:
 """
 import argparse
 import multiprocessing
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -25,7 +26,11 @@ from groove.audio.segmentation import estimate_bpm, select_segments
 
 
 def process_track(track_id, split, source_path, cfg, out_dir):
-    """Decode one track, select segments, write FLAC files, return manifest rows."""
+    """Decode one track, select segments, write FLAC files.
+
+    Returns (rows, reason): ``reason`` is None on success, otherwise a short
+    label aggregated into the final summary so silent drops stay visible.
+    """
     sr = cfg.sample_rate
     split_dir = out_dir / split
     split_dir.mkdir(parents=True, exist_ok=True)
@@ -33,7 +38,7 @@ def process_track(track_id, split, source_path, cfg, out_dir):
     try:
         wav_np = load_audio(source_path, target_sr=sr, mono=True).numpy()
         if len(wav_np) < cfg.min_track_seconds * sr:
-            return []  # too short to be useful
+            return [], "shorter than min_track_seconds"
 
         bpm = estimate_bpm(wav_np, sr)
         segments = select_segments(
@@ -53,10 +58,9 @@ def process_track(track_id, split, source_path, cfg, out_dir):
                 "sample_rate": sr,
                 "source_path": source_path,
             })
-        return rows
+        return rows, None
     except Exception as e:  # one bad file shouldn't kill the whole job
-        print(f"Error on {Path(source_path).name}: {e}")
-        return []
+        return [], type(e).__name__
 
 
 def main():
@@ -83,26 +87,34 @@ def main():
         existing = pd.read_csv(manifest_path, dtype={"track_id": str})
         done = set(existing["track_id"])
         catalog = catalog[~catalog["track_id"].isin(done)]
-        print(f"Resume: {len(done)} tracks already done, {len(catalog)} remaining.")
+        print(
+            f"Resume: {len(done)} tracks already done, {len(catalog)} remaining.")
 
     if args.limit:
         catalog = catalog.iloc[:args.limit]
 
     print(f"Processing {len(catalog)} tracks with {n_jobs} jobs...")
     results = Parallel(n_jobs=n_jobs, backend="loky")(
-        delayed(process_track)(r.track_id, r.split, r.source_path, cfg, out_dir)
+        delayed(process_track)(r.track_id, r.split,
+                               r.source_path, cfg, out_dir)
         for r in tqdm(catalog.itertuples(index=False), total=len(catalog),
                       desc="Preprocessing", unit="track")
     )
 
-    rows = [r for track_rows in results for r in track_rows]
+    rows = [r for track_rows, _ in results for r in track_rows]
+    skipped = Counter(reason for _, reason in results if reason)
     df = pd.DataFrame(rows)
     if existing is not None:
-        df = pd.concat([existing, df], ignore_index=True) if len(df) else existing
+        df = pd.concat([existing, df], ignore_index=True) if len(
+            df) else existing
     df.to_csv(manifest_path, index=False)
 
     n_tracks = df["track_id"].nunique() if len(df) else 0
     print(f"Done. {len(df)} segments from {n_tracks} tracks -> {manifest_path}")
+    if skipped:
+        print(f"Skipped {sum(skipped.values())} tracks:")
+        for reason, count in skipped.most_common():
+            print(f"  {count:>8}  {reason}")
 
 
 if __name__ == "__main__":

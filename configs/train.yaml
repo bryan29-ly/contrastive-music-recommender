@@ -1,8 +1,8 @@
 seed: 314
-batch_size: 1024         # target on the big GPU (~80GB); use --batch_size to override
-accum_steps: 1           # gradient accumulation (smooths gradients; see trainer note)
+batch_size: 512          # ~90 GB of VRAM at crop_frames 768; --batch_size to override
+accum_steps: 1           # smooths gradients but does NOT add contrastive negatives
 epochs: 200
-lr: 2.0e-3               # AdamW base LR for batch ~1024
+lr: 1.0e-3               # AdamW base LR for batch 512, from-scratch transformer
 weight_decay: 1.0e-4
 warmup_ratio: 0.1        # share of total steps spent warming up the LR
 temperature: 0.15        # NT-Xent, retrieval-friendly

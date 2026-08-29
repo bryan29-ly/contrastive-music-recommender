@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,53 +31,39 @@ class ResBlock(nn.Module):
         return F.relu(out)
 
 
-# --- Temporal pooling heads. All take [B, C, T] and expose ``output_dim``. ---
+class SinusoidalPositionalEncoding(nn.Module):
+    """Fixed sinusoidal positions.
 
-class AttentionPooling(nn.Module):
-    """Attention-weighted temporal pooling -> [B, C]."""
-
-    def __init__(self, channels, hidden=128):
-        super().__init__()
-        self.attn = nn.Sequential(
-            nn.Linear(channels, hidden), nn.Tanh(), nn.Linear(hidden, 1))
-        self.output_dim = channels
-
-    def forward(self, x):
-        x = x.transpose(1, 2)                       # [B, T, C]
-        weights = torch.softmax(self.attn(x), dim=1)  # [B, T, 1]
-        return torch.sum(x * weights, dim=1)        # [B, C]
-
-
-class StatsPooling(nn.Module):
-    """Mean + std temporal pooling -> [B, 2C].
-
-    The std captures rhythmic variability across the window, which a plain mean
-    discards; useful to characterize groove.
+    Sequence length differs between training (a fixed crop) and inference (a
+    whole segment), so fixed positions are used rather than learned ones.
     """
 
-    def __init__(self, channels):
+    def __init__(self, dim, max_len=2048):
         super().__init__()
-        self.output_dim = 2 * channels
+        position = torch.arange(max_len).unsqueeze(1)
+        inv_freq = torch.exp(torch.arange(0, dim, 2) *
+                             (-math.log(10000.0) / dim))
+        pe = torch.zeros(max_len, dim)
+        pe[:, 0::2] = torch.sin(position * inv_freq)
+        pe[:, 1::2] = torch.cos(position * inv_freq)
+        # Fully determined by (dim, max_len), so keep it out of checkpoints.
+        self.register_buffer("pe", pe, persistent=False)
 
     def forward(self, x):
-        return torch.cat([x.mean(dim=-1), x.std(dim=-1)], dim=-1)
+        return x + self.pe[:x.shape[1]]
 
 
-class GeMPooling(nn.Module):
-    """Generalized-mean temporal pooling -> [B, C] (learnable exponent p)."""
+class AttentivePooling(nn.Module):
+    """Learned weighted average over time: [B, T, D] -> [B, D]."""
 
-    def __init__(self, channels, p=3.0, eps=1e-6):
+    def __init__(self, dim, hidden=128):
         super().__init__()
-        self.p = nn.Parameter(torch.tensor(float(p)))
-        self.eps = eps
-        self.output_dim = channels
+        self.score = nn.Sequential(
+            nn.Linear(dim, hidden),
+            nn.Tanh(),
+            nn.Linear(hidden, 1)
+        )
 
     def forward(self, x):
-        return x.clamp(min=self.eps).pow(self.p).mean(dim=-1).pow(1.0 / self.p)
-
-
-POOLINGS = {
-    "attention": AttentionPooling,
-    "stats": StatsPooling,
-    "gem": GeMPooling,
-}
+        weights = torch.softmax(self.score(x), dim=1)
+        return (x * weights).sum(dim=1)
