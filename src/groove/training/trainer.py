@@ -71,6 +71,7 @@ def _build_loaders(cfg, debug):
         crop_frames=cfg.crop_frames,
         hop_length=cfg.hop_length,
         cross_segment_prob=cfg.cross_segment_prob,
+        stretch_min=cfg.time_stretch.range[0] if cfg.time_stretch.enabled else 1.0,
         limit=200 if debug else None,
     )
     train_ds = ContrastivePairDataset(split="train", **common)

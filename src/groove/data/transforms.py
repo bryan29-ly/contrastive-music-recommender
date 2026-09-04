@@ -17,6 +17,7 @@ class RhythmSafeAugment(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.ts = cfg.time_stretch
+        self.crop_frames = cfg.crop_frames
         self.gain_range = cfg.gain_range
         self.eq = cfg.eq
         self.noise_std = cfg.noise_std
@@ -38,7 +39,9 @@ class RhythmSafeAugment(nn.Module):
             new_t = max(1, int(round(t * factor)))
             x = F.interpolate(x, size=(n_mels, new_t),
                               mode="bilinear", align_corners=False)
-            x = self._fit_time(x, t)
+        # The dataset hands over extra context, so this crop is what sets the
+        # final length, stretched or not.
+        x = self._fit_time(x, self.crop_frames)
 
         # 2. Per-sample gain: loudness invariance (additive in log domain).
         if self.gain_range > 0:
@@ -63,14 +66,17 @@ class RhythmSafeAugment(nn.Module):
         return x
 
     def _fit_time(self, x, target_t):
-        """Crop or pad the time axis back to target_t after stretching."""
+        """Center-crop the time axis to target_t.
+
+        The dataset supplies the context the slowest stretch factor needs, so
+        the padding branch guards a misconfigured range rather than the normal
+        path: replicated frames are a static block the model can key on.
+        """
         t = x.shape[-1]
         if t > target_t:
             start = (t - target_t) // 2
             return x[..., start:start + target_t]
         if t < target_t:
-            # Replicate rather than zero-pad: after standardization a zero block
-            # is the dataset mean, a constant the model can key on.
             return F.pad(x, (0, target_t - t, 0, 0), mode="replicate")
         return x
 

@@ -1,3 +1,4 @@
+import math
 import random
 from pathlib import Path
 
@@ -18,11 +19,15 @@ class ContrastivePairDataset(Dataset):
     """
 
     def __init__(self, manifest_path, segments_dir, split, crop_frames,
-                 hop_length, cross_segment_prob, limit=None):
+                 hop_length, cross_segment_prob, stretch_min=1.0, limit=None):
         self.segments_dir = Path(segments_dir)
         self.cross_segment_prob = cross_segment_prob
-        # crop length in samples chosen so the mel yields exactly crop_frames.
-        self.crop_samples = (crop_frames - 1) * hop_length
+        # Read the context the slowest stretch factor needs: the augmentation
+        # crops back to crop_frames, so a slow-down never runs out of frames.
+        # Clamped at 1.0 -- a range that only speeds up must still yield a full
+        # crop on the calls where no stretch is drawn.
+        context_frames = math.ceil(crop_frames / min(1.0, stretch_min))
+        self.crop_samples = (context_frames - 1) * hop_length
 
         df = pd.read_csv(manifest_path, dtype={"track_id": str})
         df = df[df["split"] == split].reset_index(drop=True)
